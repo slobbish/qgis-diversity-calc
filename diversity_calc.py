@@ -23,14 +23,16 @@
 """
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QAction
+from qgis.PyQt.QtWidgets import QAction, QMessageBox, QTreeWidgetItem
 
-from qgis.core import QgsMapLayerProxyModel, QgsFieldProxyModel
+from qgis.core import QgsMapLayerProxyModel, QgsFieldProxyModel, QgsMessageLog, Qgis
 
 # Initialize Qt resources from file resources.py
 from .resources import *
 # Import the code for the dialog
 from .diversity_calc_dialog import DiversityCalcDialog
+from .diversity_results_dialog import DlgResults
+from .diversity_function import dc_summarizePoly, dc_mergeDictionaries, dc_resultString, dc_richness, dc_evenness, dc_shannons, dc_simpsons
 import os.path
 
 
@@ -203,7 +205,33 @@ class DiversityCalc:
         # Run the dialog event loop
         result = self.dlg.exec_()
         # See if OK was pressed
+
         if result:
-            # Do something useful here - delete the line containing pass and
-            # substitute with your code.
-            pass
+            # Get required input parameters from the dialog
+            lyrPoly = self.dlg.mcbPoly.currentLayer()
+            lyrPoint = self.dlg.mcbPoint.currentLayer()
+
+            fldCategory = self.dlg.fcbCategory.currentField()
+            fldSpecies = self.dlg.fcbSpecies.currentField()
+
+            dctMain = {}
+            for poly in lyrPoly.getFeatures():
+                sCategory = poly.attribute(fldCategory)
+                QgsMessageLog.logMessage("Category: {}".format(sCategory),"Diversity Calculator",level=Qgis.Info)
+                dctSummary = dc_summarizePoly(poly, lyrPoint, fldSpecies)
+                QgsMessageLog.logMessage("Summary: {}".format(dctSummary), "Diversity Calculator", level=Qgis.Info)
+                dctMain = dc_mergeDictionaries(dctMain, sCategory, dctSummary)
+
+            QMessageBox.information(self.dlg,"Summary",dc_resultString(dctMain))
+            dlgResults = DlgResults()
+
+            for category, summary in dctMain.items():
+                total = sum(summary.values())
+                twiCat = QTreeWidgetItem(dlgResults.trwResults,[category,str(total),str(dc_richness(summary)),"{:3.3f}".format(dc_evenness(summary)),"{:3.3f}".format(dc_shannons(summary)),"{:3.3f}".format(dc_simpsons(summary))])
+                for species,obs in summary.items():
+                    twiCat.addChild(QTreeWidgetItem(twiCat,[species,str(obs)]))
+
+                dlgResults.trwResults.addTopLevelItem(twiCat)
+
+            dlgResults.show()
+            dlgResults.exec_()
